@@ -1,0 +1,41 @@
+{
+    "name": "lemmon/kirby-gitstats",
+    "description": "Converts Kirby text fields into GitHub stats, giving you stars, forks and issue counts with a simple field method.",
+    "license": "MIT",
+    "type": "kirby-plugin",
+    "keywords": [
+        "kirby",
+        "kirby-cms",
+        "kirby-plugin",
+        "git",
+        "github",
+        "gitstats",
+        "repository",
+        "kirby-field"
+    ],
+    "authors": [
+        {
+            "name": "Jakub Pelák",
+            "email": "jpelak@gmail.com"
+        }
+    ],
+    "support": {
+        "issues": "https://github.com/lemmon/kirby-plugin-gitstats/issues",
+        "source": "https://github.com/lemmon/kirby-plugin-gitstats"
+    },
+    "require": {
+        "getkirby/composer-installer": "^1.2"
+    },
+    "require-dev": {
+        "ergebnis/composer-normalize": "^2.48"
+    },
+    "config": {
+        "allow-plugins": {
+            "ergebnis/composer-normalize": true,
+            "getkirby/composer-installer": true
+        }
+    },
+    "extra": {
+        "installer-name": "gitstats"
+    }
+}

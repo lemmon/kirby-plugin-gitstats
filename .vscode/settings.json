@@ -1,0 +1,9 @@
+{
+  "editor.formatOnSave": true,
+  "files.exclude": {
+    "composer.lock": true,
+    "vendor": true
+  },
+  "files.trimFinalNewlines": true,
+  "search.exclude": {}
+}

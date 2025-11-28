@@ -79,10 +79,11 @@ Null is returned when the value cannot be parsed or the repository is not reacha
 
 ## Configuration
 
-| Option                          | Default      | Purpose                                                                                         |
-| ------------------------------- | ------------ | ----------------------------------------------------------------------------------------------- |
-| `lemmon.gitstats.cacheTtlLower` | `1440` (24h) | Preferred refresh interval in minutes; cached data newer than this is returned without refresh. |
-| `lemmon.gitstats.cacheTtlUpper` | `10080` (7d) | Hard cache lifetime in minutes; entries older than this are refreshed and persisted again.      |
+| Option                            | Default      | Purpose                                                                                                |
+| --------------------------------- | ------------ | ------------------------------------------------------------------------------------------------------ |
+| `lemmon.gitstats.cacheTtlLower`   | `1440` (24h) | Preferred refresh interval in minutes; cached data newer than this is returned without refresh.        |
+| `lemmon.gitstats.cacheTtlUpper`   | `10080` (7d) | Hard cache lifetime in minutes; entries older than this are refreshed and persisted again.             |
+| `lemmon.gitstats.cacheRetryDelay` | `60` (1h)    | Retry/backoff window in minutes used when GitHub refresh fails; cached data is reused until it passes. |
 
 Example Kirby config override:
 
@@ -90,14 +91,21 @@ Example Kirby config override:
 return [
   'lemmon.gitstats.cacheTtlLower' => 1440,  // refresh roughly daily
   'lemmon.gitstats.cacheTtlUpper' => 20160, // keep entries up to 14 days
+  'lemmon.gitstats.cacheRetryDelay' => 30,  // backoff for 30 minutes after a failed refresh
 ];
 ```
+
+### Retry and provider backoff
+
+-   When cached data is older than `cacheTtlLower`, a refresh is attempted.
+-   If GitHub responds or times out with an error, the plugin reuses cached data, sets `next_refresh_at` for that repository, and marks GitHub as temporarily down for `cacheRetryDelay` minutes.
+-   While GitHub is marked down, other repositories served from cache skip refresh attempts; they resume after the backoff window.
 
 ## Roadmap
 
 -   [ ] Add support for other common Git providers (GitLab, Bitbucket, Gitea).
 -   [ ] Introduce a CLI helper to refresh cached stats in the background.
--   [ ] When refresh attempts fail after `cacheTtlLower` is met, reuse cached data and delay the next refresh (e.g., 1h or the next `cacheTtlLower` window).
+-   [x] When refresh attempts fail after `cacheTtlLower` is met, reuse cached data and delay the next refresh (e.g., 1h or the next `cacheTtlLower` window).
 
 ## License
 

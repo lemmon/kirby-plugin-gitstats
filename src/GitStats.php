@@ -14,7 +14,9 @@ class GitStats
     public const CACHE_KEY_PREFIX = 'repo.';
     public const CACHE_DEFAULT_LOWER_TTL = 1440; // minutes, 24h intended refresh
     public const CACHE_DEFAULT_UPPER_TTL = 10080; // minutes, 7d hard expiry
+    public const CACHE_RETRY_DELAY_DEFAULT = 60; // minutes, default provider backoff
     protected const MAX_REFRESHES_PER_REQUEST = 1;
+    protected const PROVIDER_DOWN_KEY = 'provider.github.down_until';
 
     /**
      * Track how many entries were refreshed during the current request.
@@ -37,20 +39,40 @@ class GitStats
         $cacheKey = self::CACHE_KEY_PREFIX . $repository['slug'];
         $cacheConfig = \option('lemmon.gitstats.cache');
         $cache = \kirby()->cache(self::CACHE_NAMESPACE, is_array($cacheConfig) ? $cacheConfig : null);
+        $now = time();
+        $cacheRetryDelay = max(1, (int) \option(
+            'lemmon.gitstats.cacheRetryDelay',
+            min(self::CACHE_RETRY_DELAY_DEFAULT, $cacheTtlLower > 0 ? $cacheTtlLower : self::CACHE_DEFAULT_LOWER_TTL)
+        ));
+        $providerDownUntil = ($cacheTtlUpper !== 0) ? $cache->get(self::PROVIDER_DOWN_KEY) : null;
+        $providerIsDown = is_int($providerDownUntil) && $providerDownUntil > $now;
 
         $cached = ($cacheTtlUpper !== 0) ? $cache->get($cacheKey) : null;
         $cachedData = is_array($cached) && isset($cached['fetched_at']) ? ($cached['data'] ?? null) : null;
+        $nextRefreshAt = is_array($cached) ? ($cached['next_refresh_at'] ?? null) : null;
 
         if ($cachedData !== null) {
-            $ageMinutes = (time() - (int) $cached['fetched_at']) / 60;
+            $ageMinutes = ($now - (int) $cached['fetched_at']) / 60;
+            $pastUpper = ($cacheTtlUpper !== 0 && $ageMinutes >= $cacheTtlUpper);
 
             // Within desired freshness window: return immediately.
             if ($ageMinutes <= $cacheTtlLower) {
                 return $cachedData;
             }
+
+            // Defer refresh if provider is already marked down.
+            if ($providerIsDown && !$pastUpper) {
+                return $cachedData;
+            }
+
+            // Respect per-repo retry delay when a previous refresh failed.
+            if ($nextRefreshAt !== null && $nextRefreshAt > $now && !$pastUpper) {
+                return $cachedData;
+            }
         }
 
         // Decide whether to refresh now (limit refreshes per request).
+        $ageMinutes = isset($ageMinutes) ? $ageMinutes : null;
         $shouldRefresh = ($cachedData === null)
             || ($cacheTtlUpper === 0)
             || ($cachedData !== null && $ageMinutes >= $cacheTtlLower && self::$refreshesThisRequest < self::MAX_REFRESHES_PER_REQUEST)
@@ -60,20 +82,41 @@ class GitStats
             return $cachedData;
         }
 
+        if ($providerIsDown) {
+            return $cachedData;
+        }
+
         $stats = static::fetchGithub($repository);
 
         if ($stats !== null) {
             self::$refreshesThisRequest++;
             if ($cacheTtlUpper !== 0) {
                 $cache->set($cacheKey, [
-                    'fetched_at' => time(),
+                    'fetched_at' => $now,
                     'data' => $stats,
+                    'next_refresh_at' => null,
                 ], $cacheTtlUpper);
+                $cache->remove(self::PROVIDER_DOWN_KEY);
             }
             return $stats;
         }
 
-        // Fall back to cached data when refresh fails.
+        // Mark provider as temporarily down to avoid hammering across repos.
+        if ($cacheTtlUpper !== 0) {
+            $cache->set(self::PROVIDER_DOWN_KEY, $now + ($cacheRetryDelay * 60), $cacheRetryDelay);
+        }
+
+        // Fall back to cached data when refresh fails; defer next attempt.
+        if ($cachedData !== null && $cacheTtlUpper !== 0 && isset($cached['fetched_at'])) {
+            $ageMinutes ??= ($now - (int) $cached['fetched_at']) / 60;
+            $remainingTtl = max(1, (int) ceil($cacheTtlUpper - $ageMinutes));
+            $cache->set($cacheKey, [
+                'fetched_at' => (int) $cached['fetched_at'],
+                'data' => $cachedData,
+                'next_refresh_at' => $now + ($cacheRetryDelay * 60),
+            ], $remainingTtl);
+        }
+
         return $cachedData;
     }
 
